@@ -21,6 +21,10 @@ Today's CI/CD automation and AI agents suffer from a critical bottleneck: **The 
 ### The Solution: NetTrace AI
 **NetTrace AI** solves the "No Cold Start" challenge by unifying **MongoDB Atlas**, **Agentic Memory (Episodic, Semantic & Procedural)**, **Time-Series Telemetry**, and **SLSA Cryptographic Attestations** into an autonomous multi-agent network policy governance pipeline.
 
+> **Repositories in this Submission:**
+> - **Main Application & Core Engine (This Repo):** [`BhavyaBhimani/NetworkMongo`](https://github.com/BhavyaBhimani/NetworkMongo) — Full-stack agent engine, Gemini cognitive LLM integration, Web Dashboard UI, SLSA attestations, and MongoDB models.
+> - **Live GitOps & Multi-Environment Repository:** [`BhavyaBhimani/NetworkMongoTest`](https://github.com/BhavyaBhimani/NetworkMongoTest) — Declarative Infrastructure-as-Code (`environments/eng`, `dev`, `qa`, `pat`, `prod`) driven by GitHub Actions CI/CD workflows.
+
 ---
 
 ## 2. System Architecture & Workflow
@@ -101,8 +105,8 @@ The architecture directly implements the complete multi-branch and audit trail l
 
 ### 1. Clone & Setup
 ```bash
-git clone https://github.com/your-org/nettrace-ai.git
-cd nettrace-ai
+git clone https://github.com/BhavyaBhimani/NetworkMongo.git
+cd NetworkMongo
 
 # Install dependencies
 python -m pip install -r requirements.txt
