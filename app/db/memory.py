@@ -104,6 +104,8 @@ class MemoryManager:
         }))
         for d in active_drifts:
             d.pop("_id", None)
+            if "detected_rule" in d and isinstance(d["detected_rule"], dict):
+                d["detected_rule"].pop("_id", None)
 
         # 2. Check for port-specific incidents in episodic memory
         query_parts = [env] + [str(p) for p in ports] + [str(c) for c in cidrs]

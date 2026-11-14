@@ -44,12 +44,13 @@ class AuditReconciliationAgent(BaseAgent):
         # Reconcile un-attested rules if any
         drift_incidents = []
         for rule in unattested_rules:
+            rule_clean = {k: v for k, v in rule.items() if k != "_id"}
             incident_id = f"DRIFT-{env.upper()}-{uuid.uuid4().hex[:6]}"
             incident_doc = {
                 "incident_id": incident_id,
                 "env": env,
                 "drift_type": "UNATTESTED_MANUAL_CHANGE",
-                "detected_rule": rule,
+                "detected_rule": rule_clean,
                 "detected_by": self.agent_name,
                 "reconciled": False,
                 "details": f"Out-of-band manual configuration detected for rule '{rule.get('name', 'Unknown')}' on port {rule.get('port_range')} without PR attestation.",
@@ -134,8 +135,9 @@ class AuditReconciliationAgent(BaseAgent):
 
         # Audit agent detects it and syncs memory
         audit_result = self.audit_environment(env)
+        rule_clean = {k: v for k, v in emergency_rule.items() if k != "_id"}
         return {
-            "simulated_rule": emergency_rule,
+            "simulated_rule": rule_clean,
             "audit_result": audit_result
         }
 

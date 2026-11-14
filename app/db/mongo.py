@@ -1,10 +1,29 @@
 import logging
-from typing import Optional
+from typing import Optional, Any
+from bson.objectid import ObjectId
 from pymongo import MongoClient
 import mongomock
 from app.config import settings
 
 logger = logging.getLogger("nettrace.mongo")
+
+def sanitize_doc(doc: Any) -> Any:
+    """
+    Recursively strips MongoDB _id and converts any nested ObjectId to string.
+    Guarantees 100% JSON serializability for FastAPI and web clients.
+    """
+    if isinstance(doc, dict):
+        clean = {}
+        for k, v in doc.items():
+            if k == "_id":
+                continue
+            clean[k] = sanitize_doc(v)
+        return clean
+    elif isinstance(doc, list):
+        return [sanitize_doc(item) for item in doc]
+    elif isinstance(doc, ObjectId):
+        return str(doc)
+    return doc
 
 # MongoDB Atlas Collection-Level JSON Schema Validation
 SCHEMAS = {

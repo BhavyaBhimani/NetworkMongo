@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-from app.db.mongo import get_db
+from app.db.mongo import get_db, sanitize_doc
 from app.db.schemas import CreatePRRequest
 from app.services.pipeline import pipeline_orchestrator
 from app.agents.audit_agent import audit_agent
@@ -69,12 +69,12 @@ def get_environments():
             "env": env,
             "display_name": env.upper(),
             "policy_count": len(active_policies),
-            "policies": active_policies,
+            "policies": [sanitize_doc(p) for p in active_policies],
             "health": health,
             "has_active_drift": bool(active_drift),
-            "active_drift": active_drift
+            "active_drift": sanitize_doc(active_drift) if active_drift else None
         })
-    return result
+    return sanitize_doc(result)
 
 @router.post("/prs")
 def create_pr(req: CreatePRRequest, auto_run: bool = True):
@@ -86,13 +86,13 @@ def create_pr(req: CreatePRRequest, auto_run: bool = True):
         source_branch=req.source_branch,
         auto_run=auto_run
     )
-    return result
+    return sanitize_doc(result)
 
 @router.get("/prs")
 def list_prs(limit: int = 50):
     db = get_db()
     prs = list(db.pull_requests.find({}, {"_id": 0}).sort("created_at", -1).limit(limit))
-    return prs
+    return [sanitize_doc(p) for p in prs]
 
 @router.get("/prs/{pr_id}")
 def get_pr_details(pr_id: str):
@@ -100,14 +100,14 @@ def get_pr_details(pr_id: str):
     pr = db.pull_requests.find_one({"pr_id": pr_id}, {"_id": 0})
     if not pr:
         raise HTTPException(status_code=404, detail="PR not found")
-    return pr
+    return sanitize_doc(pr)
 
 @router.post("/prs/{pr_id}/approve")
 def approve_pr(pr_id: str, req: HumanApprovalRequest):
     result = pipeline_orchestrator.approve_human_gate(pr_id, approver=req.approver)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
-    return result
+    return sanitize_doc(result)
 
 @router.post("/prs/{pr_id}/abort")
 def abort_pr_mid_run(pr_id: str, req: AbortRequest):
@@ -117,25 +117,25 @@ def abort_pr_mid_run(pr_id: str, req: AbortRequest):
     result = pipeline_orchestrator.abort_mid_run(pr_id, reason=req.reason, aborted_by=req.aborted_by)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
-    return result
+    return sanitize_doc(result)
 
 @router.post("/prs/{pr_id}/deploy")
 def trigger_deployment(pr_id: str, force_fail: bool = False):
     result = pipeline_orchestrator.run_deployment_pipeline(pr_id, force_fail=force_fail)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
-    return result
+    return sanitize_doc(result)
 
 @router.get("/attestations")
 def list_attestations(limit: int = 50):
     db = get_db()
     records = list(db.attestations.find({}, {"_id": 0}).sort("timestamp", -1).limit(limit))
-    return records
+    return [sanitize_doc(r) for r in records]
 
 @router.get("/attestations/{attestation_id}/verify")
 def verify_attestation(attestation_id: str):
     res = attestation_ledger.verify_attestation(attestation_id)
-    return res
+    return sanitize_doc(res)
 
 @router.get("/audit/reconstruct/{identifier}")
 def reconstruct_audit_trail(identifier: str):
@@ -144,28 +144,28 @@ def reconstruct_audit_trail(identifier: str):
     Allows a compliance reviewer to reconstruct what the agent did, why, and under whose authority.
     """
     res = attestation_ledger.reconstruct_audit_trail(identifier)
-    return res
+    return sanitize_doc(res)
 
 @router.get("/memory")
 def get_memory_episodes(limit: int = 50):
     db = get_db()
     episodes = list(db.agent_memory.find({}, {"_id": 0}).sort("created_at", -1).limit(limit))
-    return episodes
+    return [sanitize_doc(e) for e in episodes]
 
 @router.get("/memory/search")
 def search_memory(q: str = Query(..., description="Query for semantic vector search in MongoDB")):
     results = memory_manager.search_semantic_memory(q, limit=5, min_score=0.2)
-    return results
+    return [sanitize_doc(r) for r in results]
 
 @router.get("/telemetry/{env}")
 def get_telemetry(env: str):
     metrics = telemetry_store.get_recent_metrics(env, minutes=30)
     aggregate = telemetry_store.calculate_health_aggregate(env, minutes=15)
-    return {
+    return sanitize_doc({
         "env": env,
         "aggregate": aggregate,
         "recent_probes": metrics
-    }
+    })
 
 @router.post("/emergency/drift")
 def simulate_emergency_drift(req: EmergencyDriftRequest):
@@ -173,13 +173,13 @@ def simulate_emergency_drift(req: EmergencyDriftRequest):
         env=req.env,
         reason=req.reason
     )
-    return result
+    return sanitize_doc(result)
 
 @router.get("/drifts")
 def list_drifts():
     db = get_db()
     drifts = list(db.drifts.find({}, {"_id": 0}).sort("created_at", -1))
-    return drifts
+    return [sanitize_doc(d) for d in drifts]
 
 @router.post("/seed")
 def reseed():
