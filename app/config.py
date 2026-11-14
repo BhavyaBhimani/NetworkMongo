@@ -13,6 +13,6 @@ class Settings:
 
     # Google Gemini API Settings (Free tier from https://aistudio.google.com)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 settings = Settings()
