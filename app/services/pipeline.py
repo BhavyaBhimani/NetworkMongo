@@ -50,6 +50,7 @@ class PipelineOrchestrator:
     def run_validation_pipeline(self, pr_id: str) -> Dict[str, Any]:
         """
         Runs the PR Validate workflow (GitHub Action simulation).
+        Enforces policy BEFORE any action can take place.
         """
         pr = self.db.pull_requests.find_one({"pr_id": pr_id})
         if not pr:
@@ -80,7 +81,7 @@ class PipelineOrchestrator:
             }
         )
 
-        # If auto-merged (e.g. non-prod branch approved), trigger deployment pipeline automatically!
+        # If auto-merged (non-prod branch approved), trigger deployment pipeline automatically!
         if new_status == "MERGED":
             deploy_res = self.run_deployment_pipeline(pr_id)
             return {
@@ -99,7 +100,7 @@ class PipelineOrchestrator:
     def approve_human_gate(self, pr_id: str, approver: str = "Network Team Lead & Manager") -> Dict[str, Any]:
         """
         Executes human-in-the-loop sign-off for protected environments (pat / prod).
-        Merges PR and launches deployment pipeline.
+        Merges PR and launches deployment pipeline under explicit recorded authority.
         """
         pr = self.db.pull_requests.find_one({"pr_id": pr_id})
         if not pr:
@@ -108,11 +109,13 @@ class PipelineOrchestrator:
         if pr.get("status") != "AWAITING_APPROVAL":
             return {"error": f"PR is not awaiting approval. Current status: {pr.get('status')}"}
 
-        # Record approval
+        # Record explicit authority grant in audit log
         self.db.audit_logs.insert_one({
             "event_type": "HUMAN_APPROVAL_GRANTED",
+            "agent": "HumanReviewerGate",
             "pr_id": pr_id,
             "approver": approver,
+            "target_branch": pr.get("target_branch"),
             "timestamp": datetime.utcnow()
         })
 
@@ -128,6 +131,59 @@ class PipelineOrchestrator:
             "approved_by": approver,
             "deployment": deploy_res,
             "status": deploy_res.get("final_status")
+        }
+
+    def abort_mid_run(self, pr_id: str, reason: str = "Operator manual intervention", aborted_by: str = "Lead SRE") -> Dict[str, Any]:
+        """
+        Emergency Circuit Breaker: Stops or rolls back an agent mid-run.
+        """
+        pr = self.db.pull_requests.find_one({"pr_id": pr_id})
+        if not pr:
+            return {"error": "PR not found"}
+
+        current_status = pr.get("status")
+        target_env = pr.get("target_branch")
+
+        # If deployment was in-flight, restore prior snapshot
+        deploy_rec = self.db.deployments.find_one({"pr_id": pr_id})
+        rollback_msg = None
+        if deploy_rec and deploy_rec.get("status") == "DEPLOYED":
+            rollback_res = deployment_agent.rollback_deployment(
+                deployment_id=deploy_rec["deployment_id"],
+                reason=f"MID-RUN ABORT: {reason}"
+            )
+            rollback_msg = rollback_res.get("message")
+
+        # Record emergency circuit breaker trip in audit log
+        self.db.audit_logs.insert_one({
+            "event_type": "EMERGENCY_CIRCUIT_BREAKER_TRIPPED",
+            "agent": "PipelineCircuitBreaker",
+            "pr_id": pr_id,
+            "aborted_by": aborted_by,
+            "prior_status": current_status,
+            "reason": reason,
+            "target_env": target_env,
+            "timestamp": datetime.utcnow()
+        })
+
+        self.db.pull_requests.update_one(
+            {"pr_id": pr_id},
+            {
+                "$set": {
+                    "status": "ABORTED_MID_RUN",
+                    "abort_reason": reason,
+                    "aborted_by": aborted_by,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+
+        return {
+            "pr_id": pr_id,
+            "status": "ABORTED_MID_RUN",
+            "aborted_by": aborted_by,
+            "prior_status": current_status,
+            "rollback_status": rollback_msg or "Execution halted before deployment snapshot was committed."
         }
 
     def run_deployment_pipeline(self, pr_id: str, force_fail: bool = False) -> Dict[str, Any]:

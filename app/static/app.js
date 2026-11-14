@@ -127,7 +127,6 @@ function renderPRDetails(pr) {
 
     const val = pr.validation_result;
     const test = pr.test_result;
-    const dep = pr.deployment_result;
 
     let humanApprovalBtn = '';
     if (pr.status === 'AWAITING_APPROVAL') {
@@ -136,14 +135,19 @@ function renderPRDetails(pr) {
                 <div>
                     <h4 class="text-xs font-bold text-amber-300 flex items-center gap-1.5">
                         <i data-lucide="shield-alert" class="w-4 h-4"></i>
-                        <span>Mandatory Human-In-The-Loop Approval Required</span>
+                        <span>Mandatory Pre-Action Authority Gate</span>
                     </h4>
-                    <p class="text-[11px] text-slate-300 mt-0.5">Protected branch <strong>${pr.target_branch.toUpperCase()}</strong> requires Network Team Lead & Manager sign-off.</p>
+                    <p class="text-[11px] text-slate-300 mt-0.5">Protected branch <strong>${pr.target_branch.toUpperCase()}</strong> requires Network Team Lead & Manager sign-off before action runs.</p>
                 </div>
-                <button onclick="approvePRGate('${pr.pr_id}')" class="px-4 py-2 text-xs font-bold rounded-lg bg-amber-400 text-black hover:bg-amber-300 transition flex items-center gap-1.5 shadow-md">
-                    <i data-lucide="check" class="w-4 h-4"></i>
-                    <span>Approve & Deploy</span>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="abortPRMidRun('${pr.pr_id}')" class="px-3 py-2 text-xs font-bold rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 transition">
+                        Reject / Abort
+                    </button>
+                    <button onclick="approvePRGate('${pr.pr_id}')" class="px-4 py-2 text-xs font-bold rounded-lg bg-amber-400 text-black hover:bg-amber-300 transition flex items-center gap-1.5 shadow-md">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>Approve Authority</span>
+                    </button>
+                </div>
             </div>
         `;
     }
@@ -159,15 +163,21 @@ function renderPRDetails(pr) {
                         ${getStatusBadge(pr.status)}
                     </div>
                     <h2 class="text-sm font-semibold text-slate-200 mt-1">${pr.title}</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Initiator: <strong class="text-slate-300">${pr.author}</strong> | Source: <code class="text-indigo-400">${pr.source_branch}</code></p>
+                    <p class="text-xs text-slate-400 mt-0.5">Initiator: <strong class="text-slate-300">${pr.author}</strong> | Authority: <span class="text-indigo-300 font-medium">${pr.approved_by || 'Auto-Evaluated Policy'}</span></p>
                 </div>
 
-                ${pr.attestation_id ? `
-                    <button onclick="inspectAttestation('${pr.attestation_id}')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-lg bg-emerald-500/10 text-mongo-green border border-mongo-green/30 hover:bg-emerald-500/20 transition">
-                        <i data-lucide="key" class="w-3.5 h-3.5"></i>
-                        <span>${pr.attestation_id}</span>
+                <div class="flex items-center gap-2">
+                    <button onclick="reconstructAudit('${pr.pr_id}')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/20 transition">
+                        <i data-lucide="history" class="w-3.5 h-3.5"></i>
+                        <span>Reconstruct Audit Trail</span>
                     </button>
-                ` : ''}
+                    ${pr.attestation_id ? `
+                        <button onclick="inspectAttestation('${pr.attestation_id}')" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-lg bg-emerald-500/10 text-mongo-green border border-mongo-green/30 hover:bg-emerald-500/20 transition">
+                            <i data-lucide="key" class="w-3.5 h-3.5"></i>
+                            <span>${pr.attestation_id.substring(0, 16)}...</span>
+                        </button>
+                    ` : ''}
+                </div>
             </div>
 
             ${humanApprovalBtn}
@@ -179,7 +189,7 @@ function renderPRDetails(pr) {
                     <div class="flex items-center justify-between">
                         <h4 class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
                             <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
-                            <span>PR Validator Agent (Context Retentive)</span>
+                            <span>Pre-Action Policy Gate (Enforced Before Run)</span>
                         </h4>
                         <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold ${val?.risk_level === 'CRITICAL' ? 'bg-rose-950 text-rose-400 border border-rose-800' : (val?.risk_level === 'HIGH' ? 'bg-amber-950 text-amber-400 border border-amber-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800')}">Risk: ${val?.risk_level || 'N/A'}</span>
                     </div>
@@ -202,7 +212,7 @@ function renderPRDetails(pr) {
                     <div class="flex items-center justify-between">
                         <h4 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                             <i data-lucide="activity" class="w-3.5 h-3.5"></i>
-                            <span>Synthetic Testing & Attestation Probe</span>
+                            <span>Post-Action Verification & Rollback Sentinel</span>
                         </h4>
                         <span class="text-[10px] font-mono text-slate-400">${test ? `${test.passed_checks}/${test.total_checks} passed` : 'Pending'}</span>
                     </div>
@@ -269,6 +279,8 @@ function getStatusBadge(status) {
             return '<span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">DEPLOYED</span>';
         case 'ROLLED_BACK':
             return '<span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-rose-950 text-rose-400 border border-rose-800">ROLLED_BACK</span>';
+        case 'ABORTED_MID_RUN':
+            return '<span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-purple-950 text-purple-300 border border-purple-800">ABORTED_MID_RUN</span>';
         case 'AWAITING_APPROVAL':
             return '<span class="text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold bg-amber-950 text-amber-400 border border-amber-800 animate-pulse">AWAITING APPROVAL</span>';
         case 'REJECTED':
@@ -383,6 +395,25 @@ async function approvePRGate(prId) {
             body: JSON.stringify({ approver: "Network Team Lead & Manager" })
         });
         const data = await res.json();
+        await loadPRs();
+        selectPR(prId);
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function abortPRMidRun(prId) {
+    const reason = prompt("Enter reason for emergency mid-run abort:", "Manual operator emergency circuit breaker trip");
+    if (!reason) return;
+
+    try {
+        const res = await fetch(`/api/prs/${prId}/abort`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: reason, aborted_by: "Lead SRE" })
+        });
+        const data = await res.json();
+        alert(`Pipeline aborted mid-run!\nRollback status: ${data.rollback_status}`);
         await loadPRs();
         selectPR(prId);
     } catch (e) {
@@ -542,8 +573,9 @@ async function loadAttestations() {
                 <td class="py-2.5 px-3 font-mono text-[11px] text-indigo-300">${a.subject.digest.sha256.substring(0, 16)}...</td>
                 <td class="py-2.5 px-3 font-mono font-bold text-emerald-400">${a.predicate.test_status}</td>
                 <td class="py-2.5 px-3 font-mono text-[11px] text-slate-500">${a.previous_attestation_hash ? a.previous_attestation_hash.substring(0, 12) + '...' : 'GENESIS'}</td>
-                <td class="py-2.5 px-3 text-right">
-                    <button onclick="inspectAttestation('${a.attestation_id}')" class="px-2.5 py-1 text-[11px] rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Inspect</button>
+                <td class="py-2.5 px-3 text-right flex items-center justify-end gap-1.5">
+                    <button onclick="inspectAttestation('${a.attestation_id}')" class="px-2.5 py-1 text-[11px] rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Verify</button>
+                    <button onclick="reconstructAudit('${a.attestation_id}')" class="px-2.5 py-1 text-[11px] rounded bg-indigo-950 text-indigo-300 hover:text-white border border-indigo-800">Reconstruct</button>
                 </td>
             </tr>
         `).join('');
@@ -570,6 +602,61 @@ async function inspectAttestation(attId) {
             </div>
             <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-x-auto text-[11px] space-y-2">
                 <pre class="text-slate-300">${JSON.stringify(result, null, 2)}</pre>
+            </div>
+        `;
+
+        modal.classList.remove('hidden');
+        lucide.createIcons();
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function reconstructAudit(identifier) {
+    try {
+        const res = await fetch(`/api/audit/reconstruct/${identifier}`);
+        const result = await res.json();
+        const modal = document.getElementById('attestation-modal');
+        const content = document.getElementById('attestation-modal-content');
+        if (!modal || !content) return;
+
+        content.innerHTML = `
+            <div class="p-3 rounded-lg bg-indigo-950/40 border border-indigo-800 text-indigo-300 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="file-search" class="w-5 h-5"></i>
+                    <span class="font-bold text-xs">Reviewer Reconstruction for ${identifier}</span>
+                </div>
+                <span class="text-[10px] font-mono">MongoDB Audit Layer</span>
+            </div>
+            <div class="space-y-3 pt-2 text-slate-300">
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div class="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase font-bold">1. Identity</span>
+                        <div class="font-medium text-white">${result.identity?.initiator}</div>
+                        <div class="text-[11px] text-slate-400">Agent: ${result.identity?.agent_builder}</div>
+                    </div>
+                    <div class="p-2.5 rounded bg-slate-900 border border-slate-800">
+                        <span class="text-slate-500 block text-[10px] uppercase font-bold">2. Authority Grant</span>
+                        <div class="font-medium text-amber-300">${result.identity?.authority_signoff}</div>
+                        <div class="text-[11px] text-slate-400">Pre-Action Check: ${result.pre_action_policy_check?.policy_status}</div>
+                    </div>
+                </div>
+
+                <div class="p-3 rounded bg-slate-900 border border-slate-800 text-xs space-y-1">
+                    <span class="text-slate-500 block text-[10px] uppercase font-bold">3. What Was Executed</span>
+                    <div>Target Env: <strong class="text-white">${result.action_executed?.target_environment?.toUpperCase()}</strong> | Status: <strong class="text-emerald-400">${result.action_executed?.status}</strong></div>
+                    <div class="text-[11px] text-slate-400">Rules Applied: ${result.action_executed?.policy_changes?.length || 0} rule(s)</div>
+                </div>
+
+                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 max-h-48 overflow-y-auto text-[10px] font-mono">
+                    <div class="text-slate-400 mb-1 font-bold">MongoDB Chronological Audit Trail:</div>
+                    ${result.chronological_event_log?.map(ev => `
+                        <div class="py-1 border-b border-slate-900 flex justify-between">
+                            <span class="text-indigo-400">[${ev.event_type}]</span>
+                            <span class="text-slate-500">${new Date(ev.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                    `).join('') || '<div class="text-slate-500">No events logged.</div>'}
+                </div>
             </div>
         `;
 

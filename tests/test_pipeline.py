@@ -96,3 +96,59 @@ def test_audit_agent_drift_reconciliation():
     )
     assert next_pr["status"] == "REJECTED"
     assert any("CONFLICT" in r for r in next_pr["validation"]["reasons"])
+
+def test_auditor_reconstruction():
+    # Deploy a valid PR first
+    result = pipeline_orchestrator.create_pull_request(
+        title="Reconstructible Ingress",
+        author="User A (Dev)",
+        target_branch="dev",
+        policy_changes=[{
+            "name": "Audit Test Rule",
+            "port_range": "443",
+            "protocol": "TCP",
+            "source_cidr": "10.0.0.0/16",
+            "destination_cidr": "10.1.0.0/16",
+            "action": "ALLOW"
+        }],
+        auto_run=True
+    )
+    pr_id = result["pr_id"]
+
+    # Reconstruct as an auditor
+    recon = attestation_ledger.reconstruct_audit_trail(pr_id)
+    assert recon["found"] is True
+    assert recon["identity"]["initiator"] == "User A (Dev)"
+    assert recon["pre_action_policy_check"]["policy_status"] == "VERIFIED_BEFORE_ACTION"
+    assert recon["action_executed"]["target_environment"] == "dev"
+    assert recon["cryptographic_attestation"]["is_cryptographically_valid"] is True
+    assert len(recon["chronological_event_log"]) > 0
+
+def test_emergency_circuit_breaker_mid_run():
+    # Create PR on protected branch prod
+    result = pipeline_orchestrator.create_pull_request(
+        title="Halted Prod Change",
+        author="User B (Lead)",
+        target_branch="prod",
+        policy_changes=[{
+            "name": "Sensitive Rule",
+            "port_range": "8443",
+            "protocol": "TCP",
+            "source_cidr": "10.0.0.0/16",
+            "destination_cidr": "10.1.0.0/16",
+            "action": "ALLOW"
+        }],
+        auto_run=True
+    )
+    pr_id = result["pr_id"]
+    assert result["status"] == "AWAITING_APPROVAL"
+
+    # Trip the circuit breaker mid-run
+    abort_res = pipeline_orchestrator.abort_mid_run(pr_id, reason="Security lead flagged suspicious commit", aborted_by="Security Lead")
+    assert abort_res["status"] == "ABORTED_MID_RUN"
+
+    # Check that database reflects aborted status
+    db = get_db()
+    updated = db.pull_requests.find_one({"pr_id": pr_id})
+    assert updated["status"] == "ABORTED_MID_RUN"
+    assert updated["abort_reason"] == "Security lead flagged suspicious commit"

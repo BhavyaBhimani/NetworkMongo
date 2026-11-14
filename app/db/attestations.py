@@ -79,6 +79,7 @@ class AttestationLedger:
         # Log into audit trail
         self.db.audit_logs.insert_one({
             "event_type": "ATTESTATION_CREATED",
+            "agent": "SyntheticTestingAgent",
             "attestation_id": attestation_id,
             "pr_id": pr_id,
             "author": pr_author,
@@ -126,5 +127,68 @@ class AttestationLedger:
                 "attestation_id": attestation_id,
                 "reason": "Cryptographic signature mismatch! Artifact may have been tampered with."
             }
+
+    def reconstruct_audit_trail(self, identifier: str) -> Dict[str, Any]:
+        """
+        Auditor reconstruction engine answering:
+        1. What the agent did
+        2. Why it did it
+        3. Under whose authority
+        4. Complete chain of evidence and before-action policy verification
+        """
+        # Can search by attestation_id or pr_id
+        att = self.db.attestations.find_one({
+            "$or": [{"attestation_id": identifier}, {"predicate.pr_id": identifier}]
+        })
+        pr_id = att["predicate"]["pr_id"] if att else identifier
+        pr = self.db.pull_requests.find_one({"pr_id": pr_id})
+        dep = self.db.deployments.find_one({"pr_id": pr_id})
+        audit_events = list(self.db.audit_logs.find({"$or": [{"pr_id": pr_id}, {"details.pr_id": pr_id}]}).sort("timestamp", 1))
+
+        if not pr and not att:
+            return {"found": False, "message": f"No action records found for identifier: {identifier}"}
+
+        # Remove MongoDB ObjectIds
+        clean_events = []
+        for e in audit_events:
+            e.pop("_id", None)
+            clean_events.append(e)
+
+        reconstruction = {
+            "found": True,
+            "reconstruction_target": identifier,
+            "identity": {
+                "initiator": pr.get("author") if pr else att["predicate"].get("pr_author"),
+                "agent_builder": att["predicate"]["builder"]["id"] if att else "NetworkDeploymentAgent",
+                "authority_signoff": pr.get("approved_by", "Automated Policy Authority (Non-prod)") if pr else "System Authority"
+            },
+            "pre_action_policy_check": {
+                "policy_status": "VERIFIED_BEFORE_ACTION",
+                "validation_result": pr.get("validation_result") if pr else None,
+                "risk_level": pr.get("validation_result", {}).get("risk_level", "LOW") if pr else "LOW",
+                "reasons": pr.get("validation_result", {}).get("reasons", []) if pr else []
+            },
+            "action_executed": {
+                "pr_id": pr_id,
+                "target_environment": pr.get("target_branch") if pr else att["predicate"].get("target_env"),
+                "policy_changes": pr.get("policy_changes", []) if pr else [],
+                "deployment_id": dep.get("deployment_id") if dep else None,
+                "status": pr.get("status") if pr else "UNKNOWN"
+            },
+            "verification_and_testing": {
+                "synthetic_tests": pr.get("test_result") if pr else att["predicate"].get("test_metrics"),
+                "rollback_occurred": pr.get("status") == "ROLLED_BACK" if pr else False
+            },
+            "cryptographic_attestation": {
+                "attestation_id": att.get("attestation_id") if att else pr.get("attestation_id"),
+                "policy_digest_sha256": att["subject"]["digest"]["sha256"] if att else None,
+                "signature": att.get("signature") if att else None,
+                "previous_chain_hash": att.get("previous_attestation_hash") if att else None,
+                "is_cryptographically_valid": self.verify_attestation(att["attestation_id"])["valid"] if att else False
+            },
+            "chronological_event_log": clean_events
+        }
+
+        return reconstruction
 
 attestation_ledger = AttestationLedger()

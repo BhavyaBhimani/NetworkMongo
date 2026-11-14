@@ -10,10 +10,13 @@ from app.db.memory import memory_manager
 from app.db.telemetry import telemetry_store
 
 router = APIRouter(prefix="/api")
-db_mgr = get_db()
 
 class HumanApprovalRequest(BaseModel):
     approver: str = "Network Team Lead & Manager"
+
+class AbortRequest(BaseModel):
+    reason: str = "Emergency operator intervention"
+    aborted_by: str = "Lead SRE"
 
 class EmergencyDriftRequest(BaseModel):
     env: str = "prod"
@@ -33,7 +36,8 @@ def get_system_status():
             "attestations": db.attestations.count_documents({}),
             "agent_memory": db.agent_memory.count_documents({}),
             "drifts": db.drifts.count_documents({}),
-            "telemetry_points": db.network_telemetry.count_documents({})
+            "telemetry_points": db.network_telemetry.count_documents({}),
+            "audit_logs": db.audit_logs.count_documents({})
         }
     }
 
@@ -90,6 +94,16 @@ def approve_pr(pr_id: str, req: HumanApprovalRequest):
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
+@router.post("/prs/{pr_id}/abort")
+def abort_pr_mid_run(pr_id: str, req: AbortRequest):
+    """
+    Emergency Circuit Breaker: Stops or rolls back an agent mid-run.
+    """
+    result = pipeline_orchestrator.abort_mid_run(pr_id, reason=req.reason, aborted_by=req.aborted_by)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
 @router.post("/prs/{pr_id}/deploy")
 def trigger_deployment(pr_id: str, force_fail: bool = False):
     result = pipeline_orchestrator.run_deployment_pipeline(pr_id, force_fail=force_fail)
@@ -106,6 +120,15 @@ def list_attestations(limit: int = 50):
 @router.get("/attestations/{attestation_id}/verify")
 def verify_attestation(attestation_id: str):
     res = attestation_ledger.verify_attestation(attestation_id)
+    return res
+
+@router.get("/audit/reconstruct/{identifier}")
+def reconstruct_audit_trail(identifier: str):
+    """
+    Hackathon Statement One Core Requirement:
+    Allows a compliance reviewer to reconstruct what the agent did, why, and under whose authority.
+    """
+    res = attestation_ledger.reconstruct_audit_trail(identifier)
     return res
 
 @router.get("/memory")

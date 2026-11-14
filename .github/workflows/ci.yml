@@ -1,0 +1,84 @@
+name: NetTrace AI Multi-Agent & MongoDB Verification
+
+on:
+  push:
+    branches: [ master, main, dev, pat, prod ]
+  pull_request:
+    branches: [ master, main, dev, pat, prod ]
+  workflow_dispatch:
+
+jobs:
+  test-and-audit:
+    name: Run Multi-Agent Policy Engine & Audit Pipeline
+    runs-on: ubuntu-latest
+
+    # Optional local MongoDB service container to guarantee live MongoDB testing even without Atlas
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd mongosh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest requests-mock
+
+      - name: Determine Public Runner IP (For Atlas Whitelist Troubleshooting)
+        id: runner_ip
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org || echo "Unknown")
+          echo "GitHub Runner Public IP is: $RUNNER_IP"
+          echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
+
+      - name: Configure MongoDB Connection
+        env:
+          ATLAS_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          # If secret MONGODB_URI exists, use Atlas; otherwise use GitHub runner MongoDB service container
+          if [ -n "$ATLAS_URI" ]; then
+            echo "Using MongoDB Atlas connection from GitHub Repository Secrets."
+            echo "MONGODB_URI=$ATLAS_URI" >> $GITHUB_ENV
+          else
+            echo "No MONGODB_URI secret provided. Connecting to active GitHub Actions MongoDB service container on localhost:27017."
+            echo "MONGODB_URI=mongodb://127.0.0.1:27017/nettrace_db" >> $GITHUB_ENV
+          fi
+          echo "MONGODB_DB_NAME=nettrace_db" >> $GITHUB_ENV
+
+      - name: Seed Database & Verify MongoDB Instance
+        run: |
+          python seed_data.py
+
+      - name: Run Unit Tests & Statement One Policy Gates
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Run Full Multi-Agent Simulation (Scenarios 1 through 4)
+        run: |
+          python simulate.py
+
+      - name: Test Audit Trail Reconstruction Endpoint
+        run: |
+          # Verify that an auditor can query and reconstruct an action backward
+          python -c "
+          from app.db.attestations import attestation_ledger
+          recon = attestation_ledger.reconstruct_audit_trail('PR-GENESIS-001')
+          assert recon['found'] is True, 'Reconstruction failed'
+          print('Auditor Reconstruction Successfully Verified:', recon['identity'])
+          "
