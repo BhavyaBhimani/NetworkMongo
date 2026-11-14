@@ -10,7 +10,7 @@ on:
 jobs:
   test-and-audit:
     name: Run Multi-Agent Policy Engine & Audit Pipeline
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     # Optional local MongoDB service container to guarantee live MongoDB testing even without Atlas
     services:
@@ -32,7 +32,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -51,7 +50,6 @@ jobs:
         env:
           ATLAS_URI: ${{ secrets.MONGODB_URI }}
         run: |
-          # If secret MONGODB_URI exists, use Atlas; otherwise use GitHub runner MongoDB service container
           if [ -n "$ATLAS_URI" ]; then
             echo "Using MongoDB Atlas connection from GitHub Repository Secrets."
             echo "MONGODB_URI=$ATLAS_URI" >> $GITHUB_ENV
@@ -75,7 +73,6 @@ jobs:
 
       - name: Test Audit Trail Reconstruction Endpoint
         run: |
-          # Verify that an auditor can query and reconstruct an action backward
           python -c "
           from app.db.attestations import attestation_ledger
           recon = attestation_ledger.reconstruct_audit_trail('PR-GENESIS-001')
