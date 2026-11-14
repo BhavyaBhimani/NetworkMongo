@@ -46,9 +46,10 @@ jobs:
           echo "GitHub Runner Public IP is: $RUNNER_IP"
           echo "runner_ip=$RUNNER_IP" >> $GITHUB_OUTPUT
 
-      - name: Configure MongoDB Connection
+      - name: Configure MongoDB & Agent Credentials
         env:
           ATLAS_URI: ${{ secrets.MONGODB_URI }}
+          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           if [ -n "$ATLAS_URI" ]; then
             echo "Using MongoDB Atlas connection from GitHub Repository Secrets."
@@ -58,6 +59,10 @@ jobs:
             echo "MONGODB_URI=mongodb://127.0.0.1:27017/nettrace_db" >> $GITHUB_ENV
           fi
           echo "MONGODB_DB_NAME=nettrace_db" >> $GITHUB_ENV
+          if [ -n "$GEMINI_KEY" ]; then
+            echo "GEMINI_API_KEY configured for cognitive agent reasoning."
+            echo "GEMINI_API_KEY=$GEMINI_KEY" >> $GITHUB_ENV
+          fi
 
       - name: Seed Database & Verify MongoDB Instance
         run: |
