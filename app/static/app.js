@@ -54,7 +54,7 @@ async function initSystemStatus() {
         const badge = document.getElementById('db-engine-badge');
         if (badge) {
             badge.innerText = data.engine;
-            badge.className = data.engine.includes('Atlas') 
+            badge.className = data.engine.includes('Atlas')
                 ? 'text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono border border-emerald-800'
                 : 'text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono border border-slate-700';
         }
